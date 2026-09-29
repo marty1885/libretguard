@@ -1,0 +1,12 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/retguardTargets.cmake")
+
+# Existing consumers may still use the former mode-specific target names.
+foreach(mode IN ITEMS manual auto)
+  if(NOT TARGET retguard::${mode})
+    add_library(retguard::${mode} INTERFACE IMPORTED)
+    set_target_properties(retguard::${mode} PROPERTIES
+      INTERFACE_LINK_LIBRARIES retguard::retguard)
+  endif()
+endforeach()
