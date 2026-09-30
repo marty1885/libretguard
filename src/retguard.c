@@ -20,8 +20,10 @@ retguard_random_bytes(void *buffer, size_t length)
     }
 }
 
-/* The assembly hooks and manual guards use the same table and slot index. */
+/* Manual seals and automatic tags share this table and slot index. Automatic
+   mode uses a separate table and a different slot index to mask the word. */
 __attribute__((visibility("hidden"))) uintptr_t retguard_auto_cookies[16];
+__attribute__((visibility("hidden"))) uintptr_t retguard_auto_masks[16];
 __attribute__((visibility("hidden"))) int retguard_ready;
 
 static void
@@ -31,10 +33,14 @@ retguard_init(void)
         return;
 
     retguard_random_bytes(retguard_auto_cookies, sizeof(retguard_auto_cookies));
+    retguard_random_bytes(retguard_auto_masks, sizeof(retguard_auto_masks));
     /* Odd multipliers are units modulo 2^64, so multiplication remains a
        permutation and cannot introduce avoidable seal collisions. */
-    for (size_t i = 0; i < 16; ++i)
+    for (size_t i = 0; i < 16; ++i) {
         retguard_auto_cookies[i] |= 1;
+        /* The tag replaces this byte, so keep masked addresses canonical. */
+        retguard_auto_masks[i] &= UINT64_C(0x00FFFFFFFFFFFFFF);
+    }
     retguard_ready = 1;
 }
 

@@ -33,7 +33,7 @@ __x86_return_thunk:
 	.size __x86_return_thunk, .-__x86_return_thunk
 
 /* Automatic entry hook. Its caller's return address is at rsp+8 while the
-   hook runs. The top byte stores an eight-bit tag in that existing slot. */
+   hook runs. Mask the address, then tag the low 56 bits of that payload. */
 	.p2align 4
 	.globl __retguard_fentry
 	.hidden __retguard_fentry
@@ -43,27 +43,45 @@ __retguard_fentry:
 	.cfi_def_cfa %rsp, 16
 	.cfi_offset %rip, -8
 	endbr64
-	cmpb $0, 15(%rsp)
+	pushq %rcx
+	.cfi_def_cfa_offset 24
+	.cfi_offset %rcx, -24
+	cmpb $0, 23(%rsp)
 	jne .Lauto_corrupt
-	leaq 8(%rsp), %r10
+	leaq 16(%rsp), %r10
+	movq %r10, %rcx
 	shrq $4, %r10
+	shrq $12, %rcx
+	xorq %r10, %rcx
 	andl $15, %r10d
+	andl $15, %ecx
 	leaq retguard_auto_cookies(%rip), %r11
-	movq (%r11,%r10,8), %r10
-	leaq 8(%rsp), %r11
-	xorq 8(%rsp), %r11
-	imulq %r10, %r11
-	shrq $56, %r11
-	shlq $56, %r11
-	orq 8(%rsp), %r11
-	movq %r11, 8(%rsp)
+	movq (%r11,%r10,8), %r11
+	leaq retguard_auto_masks(%rip), %r10
+	movq (%r10,%rcx,8), %rcx
+	movq 16(%rsp), %r10
+	xorq %rcx, %r10
+	leaq 16(%rsp), %rcx
+	xorq %r10, %rcx
+	imulq %r11, %rcx
+	shrq $56, %rcx
+	shlq $56, %rcx
+	orq %rcx, %r10
+	movq %r10, 16(%rsp)
+	popq %rcx
+	.cfi_def_cfa_offset 16
+	.cfi_restore %rcx
+	jmp .Lauto_entry_ret
+	.rept 16
+	int3
+	.endr
+.Lauto_entry_ret:
 	ret
 	.cfi_endproc
 	.size __retguard_fentry, .-__retguard_fentry
 
-/* The object patcher redirects automatic return relocations here. It has a
-   different entry contract from __x86_return_thunk: the tag lives on the
-   stack, while r11 contains arbitrary function state. */
+/* The assembly compiler redirects automatic returns here. The tag check
+   uses the stored payload, independent of unmasking the return address. */
 	.p2align 4
 	.globl __retguard_auto_return_thunk
 	.hidden __retguard_auto_return_thunk
@@ -71,28 +89,37 @@ __retguard_fentry:
 __retguard_auto_return_thunk:
 	.cfi_startproc
 	endbr64
-	movq (%rsp), %rcx
-	shlq $8, %rcx
-	shrq $8, %rcx
+	movq (%rsp), %r9
+	shlq $8, %r9
+	shrq $8, %r9
 	movq %rsp, %r10
+	movq %r10, %r11
 	shrq $4, %r10
+	shrq $12, %r11
+	xorq %r10, %r11
 	andl $15, %r10d
-	leaq retguard_auto_cookies(%rip), %r11
-	movq (%r11,%r10,8), %r10
-	movq %rcx, %r11
-	xorq %rsp, %r11
-	imulq %r10, %r11
-	shrq $56, %r11
-	cmpb %r11b, 7(%rsp)
+	andl $15, %r11d
+	leaq retguard_auto_cookies(%rip), %r8
+	movq (%r8,%r10,8), %r10
+	leaq retguard_auto_masks(%rip), %r8
+	movq (%r8,%r11,8), %r11
+	movq %r9, %r8
+	xorq %rsp, %r9
+	imulq %r10, %r9
+	xorq %r11, %r8
+	shrq $56, %r9
+	cmpb %r9b, 7(%rsp)
 	jne .Lauto_corrupt
-	/* ret reads eight bytes; restore the complete untagged word. */
-	movq %rcx, (%rsp)
-	ret
+	/* ret reads eight bytes; restore the complete unmasked address. */
+	movq %r8, (%rsp)
+	jmp .Lauto_checked_ret
 .Lauto_corrupt:
 	ud2
 	.rept 16
 	int3
 	.endr
+.Lauto_checked_ret:
+	ret
 	.cfi_endproc
 	.size __retguard_auto_return_thunk, .-__retguard_auto_return_thunk
 	.section .note.GNU-stack,"",@progbits

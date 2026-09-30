@@ -27,6 +27,7 @@ extern "C" {
 #endif
 /* Both modes select a cookie from the return-address slot's address. */
 extern __attribute__((visibility("hidden"))) uintptr_t retguard_auto_cookies[16];
+extern __attribute__((visibility("hidden"))) uintptr_t retguard_auto_masks[16];
 extern __attribute__((visibility("hidden"))) int retguard_ready;
 #ifdef __cplusplus
 }

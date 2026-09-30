@@ -24,24 +24,34 @@ tests/
   manual_protections/  run.py, c_fixture.c, cpp_fixture.cc
   checked_return/      run.py, c_targets.c, cpp_targets.cc, driver.cc
   auto_compatibility/  run.py, workload.cc, extra.c, mixed_manual.c
+  header_compatibility/ driver.cc, qoi.c, json.cc, spdlog.cc
 ```
 
 | CTest name | Runner and fixture | What it checks |
 | --- | --- | --- |
-| `manual.initialization` | `initialization/fixture.c` | A linker-wrapped `getrandom()` supplies even cookies and one zero cookie; preinit makes every cookie odd without another draw. |
+| `manual.initialization` | `initialization/fixture.c` | A linker-wrapped `getrandom()` supplies even seal cookies and one zero cookie, then a separate address-mask draw; preinit makes every seal cookie odd. |
 | `manual.api` | `manual_api/run.py` → `fixture.c` | `normal`: pre-main cookie initialization, recursion, early void return, explicit return. `bad_return`: guarded address corruption aborts. With required CET, `cet_bad_return`: an unguarded corrupt return faults. |
 | `manual.smoke` | `manual_smoke/constructor_smoke.cc` | A protected C++ global constructor runs before `main()`. |
 | `manual.protections` | `manual_protections/run.py` → `c_fixture.c`, `cpp_fixture.cc` | For each stack protector/CET variant, inspect compiler output; run ordinary C/C++ returns and exceptions; verify compiler canary failure and C++ unwind cleanup; verify a CET control protection fault when available. |
 | `manual.checked_return` | `checked_return/run.py` → `c_targets.c`, `cpp_targets.cc`, `driver.cc` | At the selected optimization level, vary stack protector, CET, and register clearing; inspect checked-return code generation; run scalar, aggregate, floating point, recursive, and C++ returns; verify missing scopes, corrupt addresses and seals, canary failure, exceptions, and a signal at the return handoff. |
-| `auto_plain.compatibility` | `auto_compatibility/run.py` → `workload.cc`, `extra.c`, `mixed_manual.c` | Require PIE without `DT_TEXTREL`, inspect PC-relative cookie references and C/C++ entry/return hooks, then check recursive and mixed returns, exceptions, cancellation, `pthread_exit`, and corrupt return and unwind traps. |
+| `auto_plain.compatibility` | `auto_compatibility/run.py` → `workload.cc`, `extra.c`, `mixed_manual.c` | Require PIE without `DT_TEXTREL`, inspect GOT-relative secret-table references, C/C++ entry/return hooks, and both interrupt slides, then check recursive and mixed returns, exceptions, cancellation, `pthread_exit`, and corrupt return and unwind traps. |
 | `auto_ssp.compatibility` | Same fixtures with `-fstack-protector-all` | Repeats the automatic cases and verifies the compiler canary slot and `__stack_chk_fail` path. |
+| `auto.header.stb` | `header_compatibility/driver.cc` + `benchmark/stb_image_impl.c` | Decode the bundled PNG with auto mode compiled stb_image. |
+| `auto.header.qoi` | `header_compatibility/qoi.c` | Encode and decode RGBA pixels with auto mode compiled QOI. |
+| `auto.header.json` | `header_compatibility/json.cc` | Parse, serialize, and inspect nlohmann/json values under auto mode. Requires the nlohmann_json CMake package. |
+| `auto.header.spdlog` | `header_compatibility/spdlog.cc` | Format a message through a header-only spdlog logger under auto mode. Requires the spdlog CMake package. |
 
 The automatic workload includes both C and C++ translation units. Each is
-compiled and patched separately by `retguard_target()`; the runner checks that
+compiled to assembly and assembled separately by `retguard_target()`; the runner checks that
 both retain the automatic entry and return hooks.
-The CMake build links one archive. The object patcher redirects automatic
+The CMake build links one archive. The assembly compiler redirects automatic
 returns to `__retguard_auto_return_thunk`; manually selected returns keep
 `__x86_return_thunk`. The mixed fixture exercises both in one executable.
+
+The stb_image and QOI tests use vendored upstream single headers. The JSON
+and spdlog cases are registered when their CMake packages are installed;
+missing packages are reported during configuration. Each case puts the
+library implementation or instantiated header code in an automatic object.
 
 The manual runners inspect generated instructions as well as process results.
 They verify that protected functions retain compiler canary checks and that a
