@@ -8,7 +8,7 @@ The design is based on the [OpenBSD RETGUARD paper](https://www.openbsd.org/pape
 > libretguard is NOT a security catch-all. It is a cheap (to implement and to use) mitigation that makes ROP attacks require more steps or be probabilistic and crash most of the time. You should still audit and fix bugs.
 
 > [!IMPORTANT]
-> libretguard can have trivial performance cost IF your small functions are inlined (or just not instrumented at all) - as address math and return checks are implemented in a per-call fashion. We recomment explicitly set `-finline-limit=200` as a part of your compilation flag.
+> This is a research prototype. We tried reducing automatic-protection overhead without a compiler pass: some workloads improved, but frequent small calls remain expensive and tuning introduces regressions. That investigation is closed. Further work should require an explicitly approved GCC/Clang compiler pass; do not recreate a script-based optimizer. See [BENCHMARK.md](BENCHMARK.md) for the final results.
 
 ## Usage
 
@@ -129,9 +129,17 @@ add_executable(app main.c unguarded.c)
 retguard_target(app SOURCES guarded.c)
 ```
 
-`retguard_target()` preserves the configured compiler stack protection. Its
-optional `STACK_FLAG` argument lets tests select a specific protection mode;
-the benchmarks use `-fstack-protector-strong` for both plain and guarded builds.
+Automatic compilation rejects raw return instructions (including per-function return-thunk overrides), stack-changing instructions before the entry hook (such as captured GCC nested functions), and missing runtime unwind tables. Recognized ENDBR64 and compiler NOP entry prefixes are supported. See [tests/README.md](tests/README.md) for compatibility probes and [BENCHMARK.md](BENCHMARK.md) for the final overhead results.
+
+`retguard_target()` accepts optional compiler inlining tuning. For example, with Clang in the source CMake build:
+
+```cmake
+retguard_target(app INLINE_LIMIT 200 SOURCES parser.cc)
+```
+
+This maps to Clang's LLVM inline threshold; GCC maps the same option to `-finline-limit`. The benchmark suite runs both compiler defaults and an explicit setting of 200 for GCC and Clang, applied equally to plain and protected implementation objects. The numeric setting is standardized, but the compiler heuristics are different. Every function that remains emitted still receives protection. Clang's option is internal, so configuration checks compiler support. `--inline-limit` and `RETGUARD_BENCH_INLINE_LIMIT` allow an explicit override. See [BENCHMARK.md](BENCHMARK.md) for the final measured tradeoffs.
+
+`retguard_target()` preserves the configured compiler stack protection. Its optional `STACK_FLAG` argument lets tests select a specific protection mode; the benchmarks use `-fstack-protector-strong` for both plain and guarded builds.
 
 ## Security properties
 

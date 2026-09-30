@@ -54,7 +54,20 @@ def patch_assembly(source: str) -> str:
     output = []
     fdes = 0
     clang_terminate = False
-    for line in source.splitlines(keepends=True):
+    # Only LF separates GAS source lines. Other bytes, including character
+    # codes recognized by str.splitlines(), can occur inside string literals.
+    lines = source.split("\n")
+    for number, part in enumerate(lines, 1):
+        line = part + ("\n" if number < len(lines) else "")
+        # Per-function attributes and inline assembly can override the
+        # compiler's return-thunk flag. An entry hook alone is not coverage:
+        # a raw return would consume the encoded address and crash.
+        if re.match(r"^\s*(?:(?:rep(?:z|nz|e|ne)?|bnd)\s+)?(?:ret[qwl]?|lret[qwl]?)\b", line):
+            raise ValueError(
+                f"unthunked return at assembly line {number}: {line.strip()}; "
+                "automatic protection requires thunk-extern returns "
+                "(check function_return attributes and inline assembly)"
+            )
         if line.startswith("__clang_call_terminate:"):
             # Clang synthesizes this noreturn EH helper after instrumentation.
             # It has no fentry hook or return to decode.
@@ -75,6 +88,14 @@ def patch_assembly(source: str) -> str:
     return "".join(output)
 
 
+def patch_assembly_bytes(source: bytes) -> bytes:
+    # Compiler assembly is not necessarily UTF-8: Clang can emit literal
+    # high bytes in .asciz constants. Preserve every byte through text edits.
+    return patch_assembly(source.decode("utf-8", errors="surrogateescape")).encode(
+        "utf-8", errors="surrogateescape"
+    )
+
+
 def main(args: list[str]) -> None:
     if len(args) < 4 or "-c" not in args or "-o" not in args:
         raise ValueError("expected a compiler command with -c and -o")
@@ -83,15 +104,22 @@ def main(args: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="retguard-", dir=output.parent) as temp:
         assembly = Path(temp) / "raw.s"
         patched = Path(temp) / "guarded.s"
+        guarded_object = Path(temp) / "guarded.o"
         compile_args = args.copy()
         compile_args[compile_args.index("-c")] = "-S"
         compile_args[compile_args.index("-o") + 1] = str(assembly)
         subprocess.run(compile_args, check=True)
-        patched.write_text(patch_assembly(assembly.read_text()))
-        subprocess.run(["as", "--64", "-o", str(output), str(patched)], check=True)
-    with output.open("rb") as stream:
-        elf = ELFFile(stream)
-        check_coverage(elf, records(elf.get_section_by_name(".eh_frame").data()))
+        patched.write_bytes(patch_assembly_bytes(assembly.read_bytes()))
+        subprocess.run(["as", "--64", "-o", str(guarded_object), str(patched)], check=True)
+        with guarded_object.open("rb") as stream:
+            elf = ELFFile(stream)
+            frames = elf.get_section_by_name(".eh_frame")
+            if frames is None:
+                raise ValueError("missing .eh_frame; automatic protection requires runtime unwind tables")
+            check_coverage(elf, records(frames.data()))
+        # Publish only verified objects: a failed build must not leave an
+        # invalid output for the next incremental build to reuse.
+        guarded_object.replace(output)
 
 
 if __name__ == "__main__":

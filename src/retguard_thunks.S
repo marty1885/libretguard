@@ -50,13 +50,15 @@ __retguard_fentry:
 	jne .Lauto_corrupt
 	leaq 16(%rsp), %r10
 	movq %r10, %rcx
-	shrq $4, %r10
-	shrq $12, %rcx
-	xorq %r10, %rcx
+	/* Only slot bits 4..7 and 12..15 select the tables. Start the
+	   independent cookie load before computing the mask-table index. */
+	shrl $4, %r10d
 	andl $15, %r10d
-	andl $15, %ecx
 	leaq retguard_auto_cookies(%rip), %r11
 	movq (%r11,%r10,8), %r11
+	shrl $12, %ecx
+	xorl %r10d, %ecx
+	andl $15, %ecx
 	leaq retguard_auto_masks(%rip), %r10
 	movq (%r10,%rcx,8), %rcx
 	movq 16(%rsp), %r10
@@ -89,14 +91,16 @@ __retguard_fentry:
 __retguard_auto_return_thunk:
 	.cfi_startproc
 	endbr64
+	/* The mask constant is independent of the stored-word load. One AND
+	   removes its tag byte without two dependent shifts. */
+	movabsq $0x00ffffffffffffff, %r8
 	movq (%rsp), %r9
-	shlq $8, %r9
-	shrq $8, %r9
+	andq %r8, %r9
 	movq %rsp, %r10
 	movq %r10, %r11
-	shrq $4, %r10
-	shrq $12, %r11
-	xorq %r10, %r11
+	shrl $4, %r10d
+	shrl $12, %r11d
+	xorl %r10d, %r11d
 	andl $15, %r10d
 	andl $15, %r11d
 	leaq retguard_auto_cookies(%rip), %r8

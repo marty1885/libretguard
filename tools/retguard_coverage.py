@@ -7,6 +7,39 @@ import struct
 from elftools.elf.elffile import ELFFile
 
 
+def safe_entry_prefix(prefix: bytes) -> bool:
+    """Recognize ENDBR64 and canonical compiler alignment/patch-entry NOPs."""
+    while prefix:
+        if prefix.startswith(b"\xf3\x0f\x1e\xfa"):
+            prefix = prefix[4:]
+            continue
+        # GAS/compiler NOPs may use operand-size and CS prefixes. Their
+        # effective-address displacement need not be zero (Clang uses 8).
+        offset = 0
+        while offset < len(prefix) and prefix[offset] in (0x66, 0x2E):
+            offset += 1
+        if prefix[offset:offset + 1] == b"\x90":
+            size = offset + 1
+        elif prefix[offset:offset + 2] == b"\x0f\x1f" and offset + 3 <= len(prefix):
+            modrm = prefix[offset + 2]
+            if modrm & 0x38:  # NOP's /0 opcode extension
+                return False
+            mode, base = modrm >> 6, modrm & 7
+            size = offset + 3
+            if mode != 3 and base == 4:
+                if size >= len(prefix):
+                    return False
+                base = prefix[size] & 7
+                size += 1  # SIB
+            size += 1 if mode == 1 else 4 if mode == 2 or (mode == 0 and base == 5) else 0
+        else:
+            return False
+        if size > len(prefix):
+            return False
+        prefix = prefix[size:]
+    return True
+
+
 def records(data: bytes) -> list[tuple[int, bytes, bool]]:
     output = []
     offset = 0
@@ -71,6 +104,18 @@ def check_coverage(elf: ELFFile, entries: list[tuple[int, bytes, bool]]) -> None
         candidates = {(section_index, call) for call in range(start, start + 16)}
         hits = calls & candidates
         if len(hits) == 1:
+            call = next(iter(hits))[1]
+            prefix = elf.get_section(section_index).data()[start:call]
+            # The hook encodes the word immediately below its own return
+            # address. GCC nested functions can push their static-chain
+            # register before fentry, changing that slot. Fail closed rather
+            # than encoding a saved register and later returning to raw data.
+            if not safe_entry_prefix(prefix):
+                raise ValueError(
+                    f"FDE at {offset:#x} has unsupported instructions before "
+                    "fentry; automatic entry requires an unchanged return slot "
+                    "(check nested functions and patchable function entries)"
+                )
             matched.update(hits)
             protected_starts.add((section_index, start))
         elif not hits:
