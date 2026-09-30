@@ -126,8 +126,12 @@ In automatic mode, coverage is selected by source file. In this example, returns
 
 ```cmake
 add_executable(app main.c unguarded.c)
-retguard_target(app STACK_FLAG -fno-stack-protector SOURCES guarded.c)
+retguard_target(app SOURCES guarded.c)
 ```
+
+`retguard_target()` preserves the configured compiler stack protection. Its
+optional `STACK_FLAG` argument lets tests select a specific protection mode;
+the benchmarks use `-fstack-protector-strong` for both plain and guarded builds.
 
 ## Security properties
 

@@ -52,6 +52,8 @@ The stb_image and QOI tests use vendored upstream single headers. The JSON
 and spdlog cases are registered when their CMake packages are installed;
 missing packages are reported during configuration. Each case puts the
 library implementation or instantiated header code in an automatic object.
+These library cases use `-fstack-protector-strong`. The protection matrices
+explicitly disable stack protection only for their unprotected comparison cases.
 
 The manual runners inspect generated instructions as well as process results.
 They verify that protected functions retain compiler canary checks and that a

@@ -51,7 +51,7 @@ def build(compiler, ssp, cet, directory):
         f"-DTEST_CET={int(cet)}", f"-I{ROOT / 'src'}",
     ]
     command([compiler, *flags, "-c", FIXTURES / "c_fixture.c", "-o", fixture])
-    command([compiler, "-O2", "-fno-stack-protector", "-fcf-protection=branch",
+    command([compiler, "-O2", "-fcf-protection=branch",
              "-c", ROOT / "src/retguard.c", "-o", runtime])
     objects = [fixture, runtime]
     link_flags = ["-Wl,--wrap=__stack_chk_fail"]
@@ -76,7 +76,7 @@ def build_cpp(compiler, ssp, cet, directory):
         f"-DTEST_CET={int(cet)}", f"-I{ROOT / 'src'}",
     ]
     command([cxx, *flags, "-c", FIXTURES / "cpp_fixture.cc", "-o", fixture])
-    command([compiler, "-O2", "-fno-stack-protector", "-fcf-protection=branch",
+    command([compiler, "-O2", "-fcf-protection=branch",
              "-c", ROOT / "src/retguard.c",
              "-o", runtime])
     objects = [fixture, runtime]

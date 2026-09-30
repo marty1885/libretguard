@@ -1,6 +1,7 @@
 # Benchmarks
 
 Measured on an AMD Ryzen 9 7950X3D with GCC 16.2.1, pinned to CPU 0.
+All benchmark builds enable `-fstack-protector-strong`.
 
 ## Call overhead
 
@@ -8,10 +9,10 @@ Each benchmark calls an out-of-line function that returns `x + 1`. The added tim
 
 | Guard | Plain call | Guarded call | Added per call |
 | --- | ---: | ---: | ---: |
-| Manual scope | 0.987 ns | 1.38 ns | 0.39 ns |
-| Manual explicit check | 0.987 ns | 1.46 ns | 0.47 ns |
-| Manual scope + checked return | 0.991 ns | 1.96 ns | 0.97 ns |
-| Automatic mode | 0.991 ns | 2.28 ns | 1.29 ns |
+| Manual scope | 0.991 ns | 1.390 ns | 0.399 ns |
+| Manual explicit check | 0.991 ns | 1.379 ns | 0.388 ns |
+| Manual scope + checked return | 0.992 ns | 1.951 ns | 0.959 ns |
+| Automatic mode | 0.991 ns | 2.769 ns | 1.778 ns |
 
 ## Library workloads
 
@@ -20,9 +21,9 @@ RETGUARD enabled for the auto variant. Times are median CPU time over five runs.
 
 | Workload | Plain | Auto | Added cost |
 | --- | ---: | ---: | ---: |
-| stb_image PNG decode | 1.128 ms | 1.638 ms | +0.510 ms (+45%) |
-| stb_image PNG decode, `-finline-limit=200` | 0.803 ms | 0.804 ms | Within run variation |
-| nlohmann/json 3.12.0 parse | 1.263 ms | 1.925 ms | +0.662 ms (+52%) |
+| stb_image PNG decode | 1.126 ms | 1.648 ms | +0.522 ms (+46%) |
+| stb_image PNG decode, `-finline-limit=200` | 0.803 ms | 0.800 ms | Within run variation |
+| nlohmann/json 3.12.0 parse | 1.359 ms | 1.985 ms | +0.626 ms (+46%) |
 
 PNG decoding uses `benchmark/data/sample.png` (256 × 256 RGB). JSON parsing uses
 a generated 132,891-byte array of 1,000 records with nested objects, arrays,
