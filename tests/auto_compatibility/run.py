@@ -2,6 +2,7 @@
 """Inspect automatic hooks and run each behavior in an isolated process."""
 
 import resource
+import re
 import signal
 import subprocess
 import sys
@@ -42,6 +43,8 @@ for object_file in object_files:
     ).stdout
     if "__retguard_fentry" not in code or "__retguard_auto_return_thunk" not in code:
         raise SystemExit(f"{object_file}: automatic entry or return hook missing")
+    if re.search(r"\tret(?:q)?\b", code):
+        raise SystemExit(f"{object_file}: unthunked return in automatic object")
 
 if ssp:
     code = subprocess.run(

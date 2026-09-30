@@ -47,8 +47,8 @@ The manual runners inspect generated instructions as well as process results.
 They verify that protected functions retain compiler canary checks and that a
 corrupted canary reaches `__stack_chk_fail`. CET cases are skipped if the host
 cannot activate a userspace shadow stack. Configure with
-`-DRETGUARD_REQUIRE_CET=ON` to require it. Automatic mode is GCC-only.
+`-DRETGUARD_REQUIRE_CET=ON` to require it. Automatic mode runs with GCC and Clang.
 
-To run the Clang manual tests, configure a separate build directory with
+To run the Clang tests, configure a separate build directory with
 `-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`. Google Benchmark
 executables are optional via `-DRETGUARD_BUILD_BENCHMARKS=ON`.

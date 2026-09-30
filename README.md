@@ -56,7 +56,7 @@ int main(void)
 
 ### Automatic translation-unit mode
 
-The automatic mode protects every instrumentable function that GCC emits for a translation unit, without source annotations or a compiler pass. The `RETGUARD_SCOPE()`, `RETGUARD_GADGET_FUNCTION` and `RETGUARD_GADGET_SCOPE()` macros are no-op in this mode as the compiler now instruments each function automatically. We recommetn this mode for most users.
+The automatic mode protects every instrumentable function that GCC or Clang emits for a translation unit, without source annotations or a compiler pass. The `RETGUARD_SCOPE()`, `RETGUARD_GADGET_FUNCTION` and `RETGUARD_GADGET_SCOPE()` macros are no-op in this mode as the compiler now instruments each function automatically. We recommetn this mode for most users.
 
 However, understand that, automatic has a higher overhead per-function then manual mode.
 
@@ -86,7 +86,7 @@ In manual mode, `RETGUARD_SCOPE()` checks every ordinary return and also runs du
 
 The two gadget macros also remove the function's own `ret`: the function passes its seal in `r11` to a shared return thunk, which checks it again and returns. We try to reserve `r11` for this; if the compiler cannot, register zeroing must be disabled for these functions so the seal survives until the thunk. The two macros must be used together.
 
-Automatic mode uses GCC's entry and return hooks, then patches each compiled object so exception unwinding checks returns too. On entry, it puts an 8-bit tag in the top byte of the stack return address; on return, a shared thunk checks the tag and restores the address. The patcher rejects objects it cannot cover. Only source files passed to `retguard_target()` are protected automatically.
+Automatic mode uses compiler entry and return hooks, then patches each compiled object so exception unwinding checks returns too. On entry, it puts an 8-bit tag in the top byte of the stack return address; on return, a shared thunk checks the tag and restores the address. The patcher rejects objects it cannot cover. Only source files passed to `retguard_target()` are protected automatically. Clang's generated constructor wrappers need `-mllvm -force-attribute=fn_ret_thunk_extern`; `retguard_target()` supplies this flag and the patcher maps Clang's `__fentry__` hook to the runtime entry hook.
 
 The checks run at return or unwind, after any stack corruption has already happened. A plain manual scope checks before the machine `ret`, leaving a gap; the gadget thunk checks again just before returning. `longjmp()` skips checks for frames it discards. Unprotected code and paths that bypass a checked return are outside this protection. Stack protectors and CET shadow stacks can be used alongside it.
 
@@ -125,6 +125,8 @@ retguard_target(app STACK_FLAG -fno-stack-protector SOURCES guarded.c)
 
 ## Security properties
 
-Manual scopes and the gadget thunk each compare a 64-bit seal. If the stored seal is untouched, any change to the return address in the same stack slot is detected. If an attacker can change both, the check depends on the cookie staying secret; 64 compared bits do not mean a guaranteed 64-bit resistance to forgery.
+The secret entropy comes from `getrandom()`, which initializes 16 cookies at startup and forces each one to be odd. The stack-slot address selects one with `cookies[(slot >> 4) & 15]`; the seal is `(return_address ^ slot) * cookie` modulo 2⁶⁴. The cookie is not derived from the address. This index uses slot-address bits 4–7, so page-aligned stack ASLR does not randomize the selection. An address disclosure reveals the selection but not the cookie value. A fresh program execution generates new cookies; a child created with `fork()` inherits the existing ones.
 
-Automatic returns and unwinding compare an 8-bit tag. An ideal unknown tag gives a blind guess a 1-in-256 chance, though this tag does not guarantee that probability for every address. This mode assumes a user-space return address has an unused top byte (aka high address) and depends on the cookie staying secret.
+Manual scopes and the gadget thunk compare the full 64-bit seal. If the stored seal is untouched, any change to the return address in the same stack slot is detected. If an attacker can change both the return address and seal, resistance to forgery depends on the secret cookie; a 64-bit comparison does not by itself establish 64-bit security.
+
+Automatic returns and unwinding store and compare only the top 8 bits of the computed seal as a tag. The cookie supplies the secret input, but the 8-bit tag limits what each check can distinguish. A blind guess would have a 1-in-256 chance only if the tag were uniform and unknown; this construction does not guarantee that bound for every address or repeated attempt. Automatic mode also assumes user-space return addresses have an unused top byte.

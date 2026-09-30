@@ -55,8 +55,15 @@ function(retguard_target target)
     add_library(${raw_target} OBJECT "${source}")
     target_link_libraries(${raw_target} PRIVATE retguard)
     target_compile_definitions(${raw_target} PRIVATE RETGUARD_AUTO)
+    set(auto_compiler_flags)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+      list(APPEND auto_compiler_flags -mfentry-name=__retguard_fentry)
+    elseif(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+      # Clang's generated global constructors miss the return-thunk attribute.
+      list(APPEND auto_compiler_flags -mllvm -force-attribute=fn_ret_thunk_extern)
+    endif()
     target_compile_options(${raw_target} PRIVATE -O2 -g -Wall -Wextra -Werror -fPIE
-      -pg -mfentry -mfentry-name=__retguard_fentry
+      -pg -mfentry ${auto_compiler_flags}
       -mfunction-return=thunk-extern -fasynchronous-unwind-tables
       ${AUTO_STACK_FLAG})
 
@@ -110,7 +117,7 @@ if(BUILD_TESTING)
   add_test(NAME manual.protections COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/manual_protections/run.py ${test_flags})
 
-  if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(suffix IN ITEMS auto_plain auto_ssp)
       if(suffix STREQUAL "auto_ssp")
         set(stack_flag -fstack-protector-all)

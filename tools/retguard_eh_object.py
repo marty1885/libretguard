@@ -20,6 +20,7 @@ from elftools.elf.elffile import ELFFile
 
 COOKIE_NAME = b"retguard_auto_cookies\0"
 AUTO_THUNK_NAME = b"__retguard_auto_return_thunk\0"
+FENTRY_NAME = b"__retguard_fentry\0"
 MASK = 0x00FF_FFFF_FFFF_FFFF
 DW_OP_GNU_ENCODED_ADDR = 0xF1
 DW_EH_PE_PCREL_SDATA4 = 0x1B
@@ -125,7 +126,7 @@ def check_coverage(elf: ELFFile, entries: list[tuple[int, bytes, bool]]) -> None
     symbols = list(symtab.iter_symbols())
     fentry_indices = {
         i for i, sym in enumerate(symbols)
-        if sym.name == "__retguard_fentry"
+        if sym.name in ("__retguard_fentry", "__fentry__")
     }
     if not fentry_indices:
         raise ValueError("no __retguard_fentry symbol")
@@ -285,14 +286,24 @@ def patch(input_file: Path, output_file: Path) -> None:
                           and symbol["st_shndx"] == "SHN_UNDEF"]
         if len(return_symbols) > 1:
             raise ValueError("multiple undefined __x86_return_thunk symbols")
+        fentry_symbols = [i for i, symbol in enumerate(symtab.iter_symbols())
+                          if symbol.name == "__fentry__"
+                          and symbol["st_shndx"] == "SHN_UNDEF"]
+        if len(fentry_symbols) > 1:
+            raise ValueError("multiple undefined __fentry__ symbols")
         cookie_symbol = symtab.num_symbols()
         auto_name_offset = len(strtab.data()) + len(COOKIE_NAME)
+        fentry_name_offset = auto_name_offset + len(AUTO_THUNK_NAME)
         new_strings = strtab.data() + COOKIE_NAME + AUTO_THUNK_NAME
         new_symbol = struct.pack("<IBBHQQ", len(strtab.data()), 0x11, 0, 0, 0, 0)
         new_symbols = bytearray(symtab.data())
         if return_symbols:
             struct.pack_into("<I", new_symbols, return_symbols[0] * 24,
                              auto_name_offset)
+        if fentry_symbols:
+            new_strings += FENTRY_NAME
+            struct.pack_into("<I", new_symbols, fentry_symbols[0] * 24,
+                             fentry_name_offset)
         new_symbols.extend(new_symbol)
         new_relocations = old_relocations + [
             (offset, (cookie_symbol << 32) | R_X86_64_PC32, 0)
